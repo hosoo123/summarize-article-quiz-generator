@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Article Brief & Quiz</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="kicker">Study desk</p>
+        <h1>Article Brief & Quiz</h1>
+        <p class="lede">
+          Paste an article. Get a short brief, then test yourself with a quiz
+          built from the same text.
+        </p>
+      </header>
+
+      <main class="layout">
+        <section class="panel input-panel" aria-labelledby="input-title">
+          <div class="panel-head">
+            <h2 id="input-title">Source</h2>
+            <button type="button" id="sample-btn" class="ghost">
+              Load sample
+            </button>
+          </div>
+          <label class="field-label" for="article">Article text</label>
+          <textarea
+            id="article"
+            rows="16"
+            placeholder="Paste a news story, essay, or lesson here…"
+          ></textarea>
+          <p id="word-count" class="meta">0 words</p>
+          <div class="controls">
+            <label class="slider-label">
+              Brief length
+              <input
+                id="length"
+                type="range"
+                min="3"
+                max="8"
+                value="5"
+              />
+              <span id="length-value">5 sentences</span>
+            </label>
+            <button type="button" id="generate-btn" class="primary">
+              Make brief & quiz
+            </button>
+          </div>
+          <p id="error" class="error" hidden></p>
+        </section>
+
+        <section class="panel result-panel" aria-labelledby="result-title">
+          <h2 id="result-title">Results</h2>
+          <div id="empty-state" class="empty">
+            Your brief and quiz will show up here after you generate them.
+          </div>
+          <div id="results" hidden>
+            <article class="brief">
+              <h3>Brief</h3>
+              <ol id="summary"></ol>
+            </article>
+            <article class="quiz">
+              <div class="quiz-head">
+                <h3>Quiz</h3>
+                <p id="score" class="meta"></p>
+              </div>
+              <form id="quiz-form"></form>
+              <div class="quiz-actions">
+                <button type="submit" form="quiz-form" class="primary">
+                  Check answers
+                </button>
+                <button type="button" id="reset-quiz" class="ghost">
+                  Try again
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <footer class="colophon">
+        Works in the browser. No account or API key needed.
+      </footer>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>
