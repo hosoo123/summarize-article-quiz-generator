@@ -25,5 +25,11 @@
     "@types/react-dom": "^19.0.2",
     "prisma": "^6.19.0",
     "typescript": "^5.7.2"
+  },
+  "allowScripts": {
+    "@clerk/shared@3.47.8": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "prisma@6.19.3": true
   }
 }
