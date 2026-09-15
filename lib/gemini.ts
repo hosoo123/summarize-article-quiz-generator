@@ -25,8 +25,9 @@ async function generate(prompt: string, json = false) {
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: json ? 0.25 : 0.35,
-        maxOutputTokens: json ? 2200 : 1000,
+        temperature: json ? 0.2 : 0.35,
+        // Mongolian quiz JSON is longer; low limits often cut strings mid-way.
+        maxOutputTokens: json ? 8192 : 1000,
         ...(json ? { responseMimeType: "application/json" } : {}),
       },
     }),
@@ -47,11 +48,53 @@ async function generate(prompt: string, json = false) {
   return text;
 }
 
-export function summarizeArticle(title: string, content: string) {
+function extractJsonArray(raw: string) {
+  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("Gemini returned incomplete quiz JSON. Please try again.");
+  }
+  return cleaned.slice(start, end + 1);
+}
+
+function parseQuizJson(raw: string): unknown {
+  try {
+    return JSON.parse(extractJsonArray(raw));
+  } catch {
+    throw new Error(
+      "Quiz JSON was cut off or invalid (Unterminated string). Please generate the quiz again.",
+    );
+  }
+}
+
+function outputLanguage(locale: "en" | "mn" = "en") {
+  if (locale === "mn") {
+    return `CRITICAL LANGUAGE RULE:
+- The entire quiz MUST be written in Mongolian Cyrillic (монгол хэл).
+- Translate every question, every option, and every explanation into Mongolian.
+- Do NOT write English sentences. Proper nouns (Temüjin, Börte, Bekhter, etc.) may stay as names.
+- Example question style: "Тэмүжин гэр бүлийнхээ дотор байр сууриа хэрхэн бэхжүүлсэн бэ?"`;
+  }
+  return `CRITICAL LANGUAGE RULE:
+- The entire quiz MUST be written in English.
+- Translate every question, every option, and every explanation into English if the article is not English.`;
+}
+
+export function summarizeArticle(
+  title: string,
+  content: string,
+  locale: "en" | "mn" = "en",
+) {
+  const languageRule =
+    locale === "mn"
+      ? "Write the entire summary in Mongolian Cyrillic (монгол хэл). Translate from the article language if needed."
+      : "Write the entire summary in English. Translate from the article language if needed.";
+
   return generate(`You are an expert study assistant. Summarize the article below accurately.
 
 Requirements:
-- Keep the original language of the article.
+- ${languageRule}
 - Start with a concise overview.
 - Then list 3-6 important points using bullets.
 - Preserve important names, dates, numbers, and conclusions.
@@ -67,30 +110,44 @@ export async function generateQuiz(
   title: string,
   content: string,
   summary: string,
+  locale: "en" | "mn" = "en",
 ): Promise<GeneratedQuestion[]> {
-  const raw = await generate(`Create exactly 5 multiple-choice questions from this article.
+  const languageName = locale === "mn" ? "Mongolian Cyrillic" : "English";
+  const prompt = `Create exactly 5 multiple-choice questions from this article.
 
-Return ONLY a JSON array. Every object must have this shape:
+Output language: ${languageName}
+${outputLanguage(locale)}
+
+Return ONLY a valid JSON array (no markdown). Keep explanations short (1 sentence).
+Every object must have this shape:
 {
-  "question": "question text",
-  "options": ["option A", "option B", "option C", "option D"],
+  "question": "question text in ${languageName}",
+  "options": ["A", "B", "C", "D"],
   "correctIndex": 0,
-  "explanation": "short explanation based on the article"
+  "explanation": "short explanation in ${languageName}"
 }
 
 Rules:
-- Use the same language as the article.
-- Include exactly four plausible options per question.
-- correctIndex must be an integer from 0 to 3.
-- Test understanding, not trivia outside the article.
-- Do not use trick questions.
+- question, options, and explanation must ALL be in ${languageName}.
+- Exactly four options per question.
+- correctIndex is an integer from 0 to 3.
+- Do not truncate JSON. Close every string and bracket.
+- Test understanding from the article only.
 
 Title: ${title}
 Summary: ${summary}
-Article: ${content}`, true);
+Article: ${content}`;
 
-  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-  const parsed: unknown = JSON.parse(cleaned);
+  let raw = await generate(prompt, true);
+  let parsed: unknown;
+  try {
+    parsed = parseQuizJson(raw);
+  } catch {
+    // One retry: model sometimes truncates Mongolian JSON mid-string.
+    raw = await generate(prompt, true);
+    parsed = parseQuizJson(raw);
+  }
+
   if (!Array.isArray(parsed)) throw new Error("Gemini returned an invalid quiz");
 
   const questions = parsed.slice(0, 5).map((item) => {

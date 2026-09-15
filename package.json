@@ -7,7 +7,9 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.35.2",

@@ -27,9 +27,10 @@ export async function POST(request: Request) {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const body = (await request.json()) as { title?: string; content?: string };
+    const body = (await request.json()) as { title?: string; content?: string; locale?: string };
     const title = body.title?.trim();
     const content = body.content?.trim();
+    const locale = body.locale === "mn" ? "mn" : "en";
 
     if (!title || !content) {
       return NextResponse.json(
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const summary = await summarizeArticle(title, content);
+    const summary = await summarizeArticle(title, content, locale);
     const article = await prisma.article.create({
       data: { userId, title, content, summary },
       include: { quizzes: { include: { questions: { orderBy: { order: "asc" } } } } },

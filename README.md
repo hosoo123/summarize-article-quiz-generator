@@ -20,8 +20,9 @@ npm install
 ```
 
 2. Copy `.env.example` to `.env.local` and fill in your own values.
+   Also put `DATABASE_URL` in a `.env` file (Prisma CLI reads `.env`, not `.env.local`).
 
-3. Create the database tables:
+3. Create the database tables (get the URL from [Prisma Console](https://console.prisma.io) → your project → **Connect**):
 
 ```bash
 npx prisma db push

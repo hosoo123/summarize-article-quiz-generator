@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { generateQuiz } from "@/lib/gemini";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ articleId: string }> },
 ) {
   const { userId } = await auth();
@@ -12,10 +12,12 @@ export async function POST(
 
   try {
     const { articleId } = await context.params;
+    const body = (await request.json().catch(() => ({}))) as { locale?: string };
+    const locale = body.locale === "mn" ? "mn" : "en";
     const article = await prisma.article.findFirst({ where: { id: articleId, userId } });
     if (!article) return NextResponse.json({ error: "Article not found" }, { status: 404 });
 
-    const generated = await generateQuiz(article.title, article.content, article.summary);
+    const generated = await generateQuiz(article.title, article.content, article.summary, locale);
     const quiz = await prisma.quiz.create({
       data: {
         articleId,
