@@ -7,3 +7,6 @@ gh_2.81.0_macOS_arm64/
 publish_github.py
 .curlcfg
 smoke_test.js
+
+.tmp/
+node_modules/
