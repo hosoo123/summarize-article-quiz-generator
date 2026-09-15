@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
   BookOpen,
   Check,
   ChevronRight,
-  Clock3,
+  ChevronLeft,
   FileText,
+  History,
   LoaderCircle,
   Plus,
   RotateCcw,
@@ -58,6 +58,8 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<"summary" | "quiz" | "submit" | null>(null);
   const [error, setError] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showSource, setShowSource] = useState(false);
 
   const loadArticles = useCallback(async () => {
     const data = await readJson(await fetch("/api/articles", { cache: "no-store" }));
@@ -155,20 +157,20 @@ export function Dashboard() {
   const score = useMemo(() => results?.filter((item) => item.correct).length ?? 0, [results]);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="sidebar-label">Workspace</p>
-          <button className="new-button" onClick={() => { setSelected(null); setActiveQuiz(null); setError(""); }}>
-            <Plus size={18} /> New summary
-          </button>
-        </div>
-        <div className="history-heading"><span><Clock3 size={16} /> History</span><small>{articles.length}</small></div>
+    <div className={`app-shell ${sidebarOpen ? "sidebar-is-open" : ""}`}>
+      <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
+        <button className="history-toggle" onClick={() => setSidebarOpen((current) => !current)} aria-label="Toggle history">
+          <History size={24} />
+          <span>History</span>
+        </button>
+        <button className="new-button" onClick={() => { setSelected(null); setActiveQuiz(null); setError(""); setSidebarOpen(false); }}>
+          <Plus size={16} /> <span>New summary</span>
+        </button>
         <div className="history-list">
           {loading && articles.length === 0 ? <p className="muted">Loading history…</p> : null}
           {!loading && articles.length === 0 ? <p className="empty-copy">Your saved summaries will appear here.</p> : null}
           {articles.map((article) => (
-            <button key={article.id} className={`history-item ${selected?.id === article.id ? "active" : ""}`} onClick={() => openArticle(article.id)}>
+            <button key={article.id} className={`history-item ${selected?.id === article.id ? "active" : ""}`} onClick={() => { openArticle(article.id); setSidebarOpen(false); }}>
               <FileText size={17} />
               <span><strong>{article.title}</strong><small>{new Date(article.createdAt).toLocaleDateString()} · {article._count.quizzes} quiz</small></span>
               <ChevronRight size={15} />
@@ -182,25 +184,34 @@ export function Dashboard() {
 
         {!selected ? (
           <div className="composer">
-            <div className="eyebrow"><Sparkles size={15} /> New study material</div>
-            <h1>Turn an article into<br /><em>something memorable.</em></h1>
-            <p>Paste your source below. Briefly will create a clear summary, then help you test what you learned.</p>
+            <button className="back-square" onClick={() => setSidebarOpen(true)} aria-label="Open history"><ChevronLeft size={16} /></button>
             <div className="form-card">
-              <label>Article title<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. How sleep shapes memory" maxLength={180} /></label>
-              <label>Article text<textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Paste the complete article here…" /></label>
-              <div className="form-footer"><small>{content.length.toLocaleString()} / 30,000 characters</small><button className="button primary" disabled={working !== null} onClick={createSummary}>{working === "summary" ? <><LoaderCircle className="spin" size={18} /> Summarizing…</> : <>Create summary <Sparkles size={18} /></>}</button></div>
+              <div className="generator-header">
+                <h1><Sparkles size={32} /> Article Quiz Generator</h1>
+                <p>Paste your article below to generate a summarize and quiz question. Your articles will saved in the sidebar for future reference.</p>
+              </div>
+              <label><span><FileText size={15} /> Article Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Enter article title" maxLength={180} /></label>
+              <label><span><FileText size={15} /> Article Content</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Paste your article here..." /></label>
+              <div className="form-footer"><small>{content.length.toLocaleString()} / 30,000</small><button className="ui-button primary" disabled={working !== null} onClick={createSummary}>{working === "summary" ? <><LoaderCircle className="spin" size={16} /> Summarizing…</> : "Generate summary"}</button></div>
             </div>
           </div>
         ) : (
           <div className="article-view">
-            <button className="back-link" onClick={() => { setSelected(null); setActiveQuiz(null); }}><ArrowLeft size={17} /> New article</button>
-            <div className="article-heading"><div><p className="kicker">Saved summary</p><h1>{selected.title}</h1><p>{new Date(selected.createdAt).toLocaleString()}</p></div><BookOpen size={28} /></div>
-            <article className="summary-card"><div className="section-title"><span><Sparkles size={19} /> AI summary</span></div><div className="summary-text">{selected.summary}</div></article>
+            <button className="back-square" onClick={() => { setSelected(null); setActiveQuiz(null); setShowSource(false); }} aria-label="Back"><ChevronLeft size={16} /></button>
+            <article className="summary-card figma-summary">
+              <div className="summary-label"><BookOpen size={16} /> Summarized content</div>
+              <h1>{selected.title}</h1>
+              <div className="summary-text">{showSource ? selected.content : selected.summary}</div>
+              <div className="summary-actions">
+                <button className="ui-button secondary" onClick={() => setShowSource((current) => !current)}>{showSource ? "See summary" : "See content"}</button>
+                {!activeQuiz ? <button className="ui-button primary" disabled={working !== null} onClick={createQuiz}>{working === "quiz" ? <><LoaderCircle className="spin" size={16} /> Generating…</> : "Take a quiz"}</button> : <a className="ui-button primary" href="#quiz">Take a quiz</a>}
+              </div>
+            </article>
 
-            <section className="quiz-section">
+            <section className="quiz-section" id="quiz">
               <div className="quiz-heading"><div><p className="kicker">Knowledge check</p><h2>{activeQuiz ? "Test your understanding" : "Ready for a quick quiz?"}</h2></div>{activeQuiz ? <button className="button ghost" onClick={() => { setAnswers({}); setResults(null); }}><RotateCcw size={17} /> Retake</button> : null}</div>
               {!activeQuiz ? (
-                <div className="quiz-empty"><BrainIcon /><p>Generate up to five questions based only on this article.</p><button className="button primary" disabled={working !== null} onClick={createQuiz}>{working === "quiz" ? <><LoaderCircle className="spin" size={18} /> Generating…</> : <>Generate quiz <ChevronRight size={18} /></>}</button></div>
+                <div className="quiz-empty"><BrainIcon /><p>Generate up to five questions based only on this article.</p><button className="ui-button primary" disabled={working !== null} onClick={createQuiz}>{working === "quiz" ? <><LoaderCircle className="spin" size={18} /> Generating…</> : <>Generate quiz <ChevronRight size={18} /></>}</button></div>
               ) : (
                 <div className="question-list">
                   {results ? <div className="score-card"><div className="score-ring">{score}/{results.length}</div><div><h3>{score === results.length ? "Perfect score!" : score >= results.length * 0.6 ? "Nice work!" : "Keep learning."}</h3><p>Review each answer below, then retake the quiz whenever you are ready.</p></div></div> : null}
@@ -213,7 +224,7 @@ export function Dashboard() {
                       return <button key={option} disabled={Boolean(results)} className={`${selectedOption ? "selected" : ""} ${correct ? "correct" : ""} ${wrong ? "wrong" : ""}`} onClick={() => setAnswers((current) => ({ ...current, [question.id]: optionIndex }))}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}{correct ? <Check size={18} /> : wrong ? <X size={18} /> : null}</button>;
                     })}</div>{result && !result.correct ? <p className="explanation"><strong>Why:</strong> {result.explanation}</p> : null}</article>;
                   })}
-                  {!results ? <button className="button primary submit-button" disabled={working !== null} onClick={submitQuiz}>{working === "submit" ? <><LoaderCircle className="spin" size={18} /> Checking…</> : "Check my answers"}</button> : null}
+                  {!results ? <button className="ui-button primary submit-button" disabled={working !== null} onClick={submitQuiz}>{working === "submit" ? <><LoaderCircle className="spin" size={18} /> Checking…</> : "Check my answers"}</button> : null}
                 </div>
               )}
             </section>
