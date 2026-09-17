@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   Plus,
   RotateCcw,
+  Save,
   Sparkles,
   X,
 } from "lucide-react";
@@ -31,6 +32,7 @@ function detectQuizLocale(quiz: Quiz): "en" | "mn" {
   const sample = quiz.questions.map((question) => question.prompt).join(" ");
   return /[\u0400-\u04FF]/.test(sample) ? "mn" : "en";
 }
+
 type Article = {
   id: string;
   title: string;
@@ -39,6 +41,7 @@ type Article = {
   createdAt: string;
   quizzes: Quiz[];
 };
+
 type Result = {
   questionId: string;
   selectedIndex: number;
@@ -46,6 +49,8 @@ type Result = {
   correct: boolean;
   explanation: string;
 };
+
+type Screen = "compose" | "summary" | "quiz" | "results";
 
 async function readJson(response: Response, fallbackError: string) {
   const data = await response.json();
@@ -62,11 +67,14 @@ export function Dashboard() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [results, setResults] = useState<Result[] | null>(null);
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [screen, setScreen] = useState<Screen>("compose");
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<"summary" | "quiz" | "submit" | null>(null);
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showSource, setShowSource] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const quizSyncKey = useRef<string | null>(null);
 
   const loadArticles = useCallback(async () => {
@@ -78,6 +86,26 @@ export function Dashboard() {
     loadArticles().catch((err) => setError(err.message)).finally(() => setLoading(false));
   }, [loadArticles]);
 
+  const resetToCompose = () => {
+    setSelected(null);
+    setActiveQuiz(null);
+    setAnswers({});
+    setResults(null);
+    setQuestionIndex(0);
+    setShowSource(false);
+    setCancelOpen(false);
+    setScreen("compose");
+    setError("");
+  };
+
+  const leaveQuizToSummary = () => {
+    setAnswers({});
+    setResults(null);
+    setQuestionIndex(0);
+    setCancelOpen(false);
+    setScreen("summary");
+  };
+
   const openArticle = async (id: string) => {
     setError("");
     setLoading(true);
@@ -88,6 +116,10 @@ export function Dashboard() {
       setActiveQuiz(quiz);
       setAnswers({});
       setResults(null);
+      setQuestionIndex(0);
+      setShowSource(false);
+      setCancelOpen(false);
+      setScreen("summary");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("errorOpen"));
     } finally {
@@ -112,8 +144,11 @@ export function Dashboard() {
       setActiveQuiz(null);
       setAnswers({});
       setResults(null);
+      setQuestionIndex(0);
+      setShowSource(false);
       setTitle("");
       setContent("");
+      setScreen("summary");
       await loadArticles();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("errorSummarize"));
@@ -122,8 +157,8 @@ export function Dashboard() {
     }
   };
 
-  const createQuiz = useCallback(async () => {
-    if (!selected) return;
+  const createQuiz = useCallback(async (startAfter = false) => {
+    if (!selected) return null;
     setWorking("quiz");
     setError("");
     try {
@@ -133,12 +168,16 @@ export function Dashboard() {
         body: JSON.stringify({ locale }),
       }), t("errorGeneric"));
       setActiveQuiz(data.quiz);
-      setSelected((current) => current ? { ...current, quizzes: [data.quiz, ...current.quizzes] } : current);
+      setSelected((current) => (current ? { ...current, quizzes: [data.quiz, ...current.quizzes] } : current));
       setAnswers({});
       setResults(null);
+      setQuestionIndex(0);
       await loadArticles();
+      if (startAfter) setScreen("quiz");
+      return data.quiz as Quiz;
     } catch (err) {
       setError(err instanceof Error ? err.message : t("errorQuiz"));
+      return null;
     } finally {
       setWorking(null);
     }
@@ -153,12 +192,12 @@ export function Dashboard() {
     const key = `${selected.id}:${locale}`;
     if (quizSyncKey.current === key) return;
     quizSyncKey.current = key;
-    void createQuiz();
-  }, [locale, selected, activeQuiz, createQuiz, working]);
+    void createQuiz(screen === "quiz" || screen === "results");
+  }, [locale, selected, activeQuiz, createQuiz, working, screen]);
 
-  const submitQuiz = async () => {
+  const submitQuiz = useCallback(async (finalAnswers: Record<string, number>) => {
     if (!activeQuiz) return;
-    if (Object.keys(answers).length !== activeQuiz.questions.length) {
+    if (Object.keys(finalAnswers).length !== activeQuiz.questions.length) {
       setError(t("errorEveryAnswer"));
       return;
     }
@@ -168,18 +207,52 @@ export function Dashboard() {
       const data = await readJson(await fetch(`/api/quizzes/${activeQuiz.id}/attempts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers }),
+        body: JSON.stringify({ answers: finalAnswers }),
       }), t("errorGeneric"));
       setResults(data.results);
+      setScreen("results");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("errorSubmit"));
     } finally {
       setWorking(null);
     }
+  }, [activeQuiz, t]);
+
+  const startQuiz = async () => {
+    if (!selected) return;
+    setCancelOpen(false);
+    setAnswers({});
+    setResults(null);
+    setQuestionIndex(0);
+    if (!activeQuiz) {
+      await createQuiz(true);
+      return;
+    }
+    setScreen("quiz");
+  };
+
+  const chooseAnswer = (questionId: string, optionIndex: number) => {
+    if (!activeQuiz || working === "submit") return;
+    const nextAnswers = { ...answers, [questionId]: optionIndex };
+    setAnswers(nextAnswers);
+    if (questionIndex < activeQuiz.questions.length - 1) {
+      setQuestionIndex((current) => current + 1);
+      return;
+    }
+    void submitQuiz(nextAnswers);
+  };
+
+  const restartQuiz = () => {
+    setAnswers({});
+    setResults(null);
+    setQuestionIndex(0);
+    setCancelOpen(false);
+    setScreen("quiz");
   };
 
   const score = useMemo(() => results?.filter((item) => item.correct).length ?? 0, [results]);
   const dateLocale = locale === "mn" ? "mn-MN" : "en-US";
+  const currentQuestion = activeQuiz?.questions[questionIndex] ?? null;
 
   return (
     <div className={`app-shell ${sidebarOpen ? "sidebar-is-open" : ""}`}>
@@ -188,7 +261,7 @@ export function Dashboard() {
           <History size={24} />
           <span>{t("history")}</span>
         </button>
-        <button className="new-button" onClick={() => { setSelected(null); setActiveQuiz(null); setError(""); setSidebarOpen(false); }}>
+        <button className="new-button" onClick={() => { resetToCompose(); setSidebarOpen(false); }}>
           <Plus size={16} /> <span>{t("newSummary")}</span>
         </button>
         <div className="history-list">
@@ -207,7 +280,7 @@ export function Dashboard() {
       <section className="workspace">
         {error ? <div className="error-banner"><X size={17} />{error}<button onClick={() => setError("")} aria-label={t("dismiss")}><X size={15} /></button></div> : null}
 
-        {!selected ? (
+        {screen === "compose" ? (
           <div className="composer">
             <button className="back-square" onClick={() => setSidebarOpen(true)} aria-label={t("openHistory")}><ChevronLeft size={16} /></button>
             <div className="form-card">
@@ -220,48 +293,108 @@ export function Dashboard() {
               <div className="form-footer"><small>{content.length.toLocaleString(dateLocale)} / 30,000</small><button className="ui-button primary" disabled={working !== null} onClick={createSummary}>{working === "summary" ? <><LoaderCircle className="spin" size={16} /> {t("summarizing")}</> : t("generateSummary")}</button></div>
             </div>
           </div>
-        ) : (
-          <div className="article-view">
-            <button className="back-square" onClick={() => { setSelected(null); setActiveQuiz(null); setShowSource(false); }} aria-label={t("back")}><ChevronLeft size={16} /></button>
+        ) : null}
+
+        {screen === "summary" && selected ? (
+          <div className="composer">
+            <button className="back-square" onClick={resetToCompose} aria-label={t("back")}><ChevronLeft size={16} /></button>
             <article className="summary-card figma-summary">
               <div className="summary-label"><BookOpen size={16} /> {t("summarizedContent")}</div>
               <h1>{selected.title}</h1>
               <div className="summary-text">{showSource ? selected.content : selected.summary}</div>
               <div className="summary-actions">
                 <button className="ui-button secondary" onClick={() => setShowSource((current) => !current)}>{showSource ? t("seeSummary") : t("seeContent")}</button>
-                <button className="ui-button primary" disabled={working !== null} onClick={createQuiz}>
-                  {working === "quiz" ? <><LoaderCircle className="spin" size={16} /> {t("generating")}</> : activeQuiz ? t("regenerateQuiz") : t("takeQuiz")}
+                <button className="ui-button primary" disabled={working !== null} onClick={startQuiz}>
+                  {working === "quiz" ? <><LoaderCircle className="spin" size={16} /> {t("generating")}</> : t("takeQuiz")}
                 </button>
               </div>
             </article>
-
-            <section className="quiz-section" id="quiz">
-              <div className="quiz-heading"><div><p className="kicker">{t("knowledgeCheck")}</p><h2>{activeQuiz ? t("testUnderstanding") : t("readyQuiz")}</h2></div>{activeQuiz ? <button className="button ghost" onClick={() => { setAnswers({}); setResults(null); }}><RotateCcw size={17} /> {t("retake")}</button> : null}</div>
-              {!activeQuiz || working === "quiz" ? (
-                <div className="quiz-empty"><BrainIcon /><p>{working === "quiz" ? t("generating") : t("quizEmpty")}</p>{working !== "quiz" ? <button className="ui-button primary" disabled={working !== null} onClick={createQuiz}>{t("generateQuiz")} <ChevronRight size={18} /></button> : <LoaderCircle className="spin" size={24} />}</div>
-              ) : (
-                <div className="question-list">
-                  {results ? <div className="score-card"><div className="score-ring">{score}/{results.length}</div><div><h3>{score === results.length ? t("perfectScore") : score >= results.length * 0.6 ? t("niceWork") : t("keepLearning")}</h3><p>{t("reviewAnswers")}</p></div></div> : null}
-                  {activeQuiz.questions.map((question, index) => {
-                    const result = results?.find((item) => item.questionId === question.id);
-                    return <article className="question-card" key={question.id}><p className="question-number">{t("questionOf", { n: index + 1, total: activeQuiz.questions.length })}</p><h3>{question.prompt}</h3><div className="options">{question.options.map((option, optionIndex) => {
-                      const selectedOption = answers[question.id] === optionIndex;
-                      const correct = result?.correctIndex === optionIndex;
-                      const wrong = Boolean(result && selectedOption && !result.correct);
-                      return <button key={option} disabled={Boolean(results)} className={`${selectedOption ? "selected" : ""} ${correct ? "correct" : ""} ${wrong ? "wrong" : ""}`} onClick={() => setAnswers((current) => ({ ...current, [question.id]: optionIndex }))}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}{correct ? <Check size={18} /> : wrong ? <X size={18} /> : null}</button>;
-                    })}</div>{result && !result.correct ? <p className="explanation"><strong>{t("why")}</strong> {result.explanation}</p> : null}</article>;
-                  })}
-                  {!results ? <button className="ui-button primary submit-button" disabled={working !== null} onClick={submitQuiz}>{working === "submit" ? <><LoaderCircle className="spin" size={18} /> {t("checking")}</> : t("checkAnswers")}</button> : null}
-                </div>
-              )}
-            </section>
           </div>
-        )}
+        ) : null}
+
+        {screen === "quiz" && activeQuiz && currentQuestion ? (
+          <div className="composer quiz-stage">
+            <div className="quiz-card">
+              <div className="quiz-card-header">
+                <div>
+                  <h1><Sparkles size={22} /> {t("quickTest")}</h1>
+                  <p>{t("quickTestBody")}</p>
+                </div>
+                <button className="quiz-close" onClick={() => setCancelOpen(true)} aria-label={t("closeQuiz")}><X size={18} /></button>
+              </div>
+              <div className="quiz-panel">
+                <div className="quiz-question-row">
+                  <h2>{currentQuestion.prompt}</h2>
+                  <span>{t("progressOf", { n: questionIndex + 1, total: activeQuiz.questions.length })}</span>
+                </div>
+                <div className="options quiz-options">
+                  {currentQuestion.options.map((option, optionIndex) => (
+                    <button
+                      key={`${currentQuestion.id}-${optionIndex}`}
+                      disabled={working === "submit"}
+                      className={answers[currentQuestion.id] === optionIndex ? "selected" : ""}
+                      onClick={() => chooseAnswer(currentQuestion.id, optionIndex)}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                {working === "submit" ? <p className="quiz-checking"><LoaderCircle className="spin" size={16} /> {t("checking")}</p> : null}
+              </div>
+            </div>
+
+            {cancelOpen ? (
+              <div className="modal-backdrop" role="presentation">
+                <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="cancel-quiz-title">
+                  <h3 id="cancel-quiz-title">{t("cancelConfirmTitle")}</h3>
+                  <p>{t("cancelConfirmBody")}</p>
+                  <div className="confirm-actions">
+                    <button className="ui-button primary" onClick={() => setCancelOpen(false)}>{t("goBack")}</button>
+                    <button className="ui-button danger" onClick={leaveQuizToSummary}>{t("cancelQuiz")}</button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {screen === "results" && activeQuiz && results ? (
+          <div className="composer">
+            <div className="quiz-card results-card">
+              <div className="quiz-card-header">
+                <div>
+                  <h1><Sparkles size={22} /> {t("quizCompleted")}</h1>
+                  <p>{t("quizCompletedBody")}</p>
+                </div>
+              </div>
+              <h2 className="score-line">{t("yourScore", { score, total: results.length })}</h2>
+              <div className="result-list">
+                {activeQuiz.questions.map((question) => {
+                  const result = results.find((item) => item.questionId === question.id);
+                  if (!result) return null;
+                  const selectedAnswer = question.options[result.selectedIndex] ?? "—";
+                  const correctAnswer = question.options[result.correctIndex] ?? "—";
+                  return (
+                    <div className={`result-item ${result.correct ? "correct" : "wrong"}`} key={question.id}>
+                      <span className="result-icon">{result.correct ? <Check size={14} /> : <X size={14} />}</span>
+                      <div>
+                        <strong>{question.prompt}</strong>
+                        <p>{t("yourAnswer", { answer: selectedAnswer })}</p>
+                        {!result.correct ? <p className="correct-line">{t("correctAnswer", { answer: correctAnswer })}</p> : null}
+                        {result.explanation ? <p className="why-line"><strong>{t("why")}</strong> {result.explanation}</p> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="summary-actions results-actions">
+                <button className="ui-button secondary" onClick={restartQuiz}><RotateCcw size={16} /> {t("restartQuiz")}</button>
+                <button className="ui-button primary" onClick={leaveQuizToSummary}><Save size={16} /> {t("saveAndLeave")}</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );
-}
-
-function BrainIcon() {
-  return <div className="brain-icon"><Sparkles size={27} /></div>;
 }
